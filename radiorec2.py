@@ -11,7 +11,9 @@ import urllib.request
 from collections import deque
 
 REMOVE_MP3 = False
-target_dir = '/home/dmitri/quinta/fifos'
+RECORD_PERIOD = 30
+#target_dir = '/home/dmitri/quinta/fifos'
+target_dir  = 'd:\quinta'
 stations  = {'brklassik':'http://streams.br-online.de/br-klassik_2.m3u',
             'dkultur': 'http://www.deutschlandradio.de/streaming/dkultur.m3u',
             'dlf':'http://www.deutschlandradio.de/streaming/dlf.m3u',
@@ -33,16 +35,13 @@ stations_debug  = {'brklassik':'http://streams.br-online.de/br-klassik_2.m3u',
 # Input         # Output queue      # output event #
 # stations list # ffmpeg_queue      # ffmpeg_event #
 
-def station_thread(stations, next_queue, next_event):
+def station_thread(station_name,station_url, next_queue, next_event):
     conn_dict  = {}
-    for station in stations:
-        conn,extension = connect_to_station(stations[station])
-        if conn != None:
-            name = station+extension
-            conn_dict[name] = conn
-    if len(conn_dict) > 0:
+    conn,extension = connect_to_station(station_url)
+    if conn != None:
+        name = station_name+extension
         print('connection established')    
-        switch_streams(conn_dict, next_queue, next_event)
+        save_stream(name, conn, next_queue, next_event)
     
 def connect_to_station(streamurl):
     # this part of code, that checks m3u playlist, was just copied from 
@@ -82,34 +81,28 @@ def connect_to_station(streamurl):
     print('Succesessfull connection to ',streamurl)
     return conn, stream_type
 
-def switch_streams(url_dict, next_queue, next_event):
+def save_stream(station_name, conn, next_queue, next_event):
     # stub for threading.Timer callback
     stub = lambda : 0==0
-    if len(url_dict) == 0:
-        return
     while 1:
         # files_dict contains mapping {tcp connection object} -> {file descriptor object}
         # and the code below saves stream to the corresp. file
-        files_dict = {}
-        for station_name,conn in url_dict.items():
-            # encode filename with current time and station name
-            cur_dt_string = datetime.datetime.now().strftime('%Y-%m-%dT%H_%M_%S')
-            filename = target_dir + os.sep + cur_dt_string + "_" + station_name
-            files_dict[conn] = open(filename,'wb')
-            next_queue.append(filename)
-        timer = threading.Timer(30,stub)
+        cur_dt_string = datetime.datetime.now().strftime('%Y-%m-%dT%H_%M_%S')
+        filename = target_dir + os.sep + cur_dt_string + "_" + station_name
+        mp3file = open(filename,'wb')
+        timer = threading.Timer(RECORD_PERIOD,stub)
         timer.start()
         # copy stream from tcp to file
         while timer.is_alive() and not conn.closed:
-            for conn, file_desc in files_dict.items():
-                buf = conn.read(1024)
-                if len(buf) < 1024:
-                    print("Error: from url {} read {} bytes,\
-                            but expected {}".format('',len(buf),1024))
-                readn = file_desc.write(buf)
-                if readn< 1024:
-                    print("Error: {} bytes written, but expected {}".format('',readn,1024))
-        list(map(lambda f: f.close(), files_dict.values()))
+            buf = conn.read(1024)
+            if len(buf) < 1024:
+                print("Error: from url {} read {} bytes,\
+                        but expected {}".format('',len(buf),1024))
+            readn = mp3file.write(buf)
+            if readn< 1024:
+                print("Error: {} bytes written, but expected {}".format('',readn,1024))
+        mp3file.close()
+        next_queue.append(mp3file)
         # Signal handler of the next_queue
         next_event.set()
 ################# end of data provider thread ############
@@ -161,10 +154,10 @@ def ffmpeg_thread(queue,event,next_queue, next_event):
 
 
 def main():
-    t = threading.Thread(target=station_thread, args=(stations_debug, fmpeg_queue,ffmpeg_event))
+    t = threading.Thread(target=station_thread, args=('dlf',stations_debug['dlf'], ffmpeg_queue,ffmpeg_event))
     t.start()
-    t = threading.Thread(target=ffmpeg_thread, args=(ffmpeg_queue, stream_files_ready,None, None))
-    t.start()
+    #t = threading.Thread(target=ffmpeg_thread, args=(ffmpeg_queue, stream_files_ready,None, None))
+    #t.start()
 
     
 
