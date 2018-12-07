@@ -1,39 +1,43 @@
-import time
-#Protobuf sector
+############ IMPORTS ############
+# container for thread's input and output queue
 from collections import deque
-import time
+# for running threads in main for test
+import threading
+# parse byte array 
 import struct
+# calculate echoprint hash of audiosample
 import echoprint
+# for managing HTTP Requests
 import urllib,urllib.request
 import json
 
-
-
-
-#Service sector
-
 import os.path
 
-
-import threading
-
-
-url_base = 'http://echoprint.music365.pro:5678/query/set_int'
+############ DEFINED CONSTANTS ###########
+OUTLIER_THRESHOLD = 5
+query_url = 'http://echoprint.music365.pro:5678'
+recognize_method_name = 'query/set_int'
+index_url = 'http://echoprint.music365.pro:5000'
+index_method_name = 'tracks'
 csv_file = 'report.csv'
 report_header = 'datetime,station,score,index\n'
-report_format = '{},{},{},{}\n'
+report_format = '{},{},{},{} - {}\n'
 
 #### Hasher thread ####
 
+#----------------------------------------------------------------------#
 # Input queue   # input event       # Output queue      # output event #
+#----------------------------------------------------------------------#
 # hasher_queue  # hasher_event      # client_queue      # client_event #        
+#raw audio file #                   # bytes of hash
+#----------------------------------------------------------------------#
 
 def hash_thread(queue, event, next_queue, next_event):
    """thread hash function"""
    operation_num=0
    # hash thread reads files, made by ffmpeg.
-   # python ffmpeg thread executes ffmpeg and add ffmpeg outpuut
-   # file to the hash buffer. A confilict can occure: filename is
+   # python ffmpeg thread executes ffmpeg and add ffmpeg output file
+   # to the hash buffer. A confilict can occure: filename is
    # in hash_thread buffer, but it is not physically written by ffmpeg
    # So hash thread will process files from previous period of observation.
    # In order to do that, additional event.wait() and tracking of new files
@@ -91,8 +95,13 @@ def getter_sound(filename):
 
 #### Client thread ####
 
+#----------------------------------------------------------------------#
 # Input queue   # input event       # Output queue      # output event #
+#----------------------------------------------------------------------#
 # client_queue  # client_event      # None              # None         #        
+# bytes of hash #                 #                   #
+#----------------------------------------------------------------------#
+import numpy as np
 def client_thread(queue,event,next_queue,next_event):
     """thread client function"""
     #if not os.paggh.exists(target_dir):
@@ -107,34 +116,90 @@ def client_thread(queue,event,next_queue,next_event):
             #Get values from queue
             (track_hash,filename)= queue.popleft()
 
-            params = 'echoprint='+track_hash
             try:
-                response = urllib.request.urlopen(url_base, data=params.encode('ascii')).read().decode('ascii')
-                response = json.loads(response)['results']
+                ############ http request for recognition ############
+                url = query_url+ '/' + recognize_method_name
+                params = 'echoprint='+track_hash
+                response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
+                response = json.loads(response)['result']
+                ############ end http request for recognition ########
                 print('Client: ',response)
-                best_match = max(response,key=lambda x:x['score'])
-                print(best_match)
-               
-                # filename is a full filename of raw audio fragemnt, 
-                # extract from it name of the file without extension
-               
-                filename_splitted =filename.rsplit('/',1)[-1].split('.')[0]
-                # now filename contains timestamp as string and name of the station:
-                # timestamp_station
-                filename_splitted = filename_splitted.rsplit('_',1)
-                stamp = filename_splitted[0]
-                station = filename_splitted[1]
-                open_mode = 'a' if os.path.exists(csv_file) else 'w'
+                
+                ############ Find recognized track as score outlier #########
+                best_match = None
+                if len(scores) == 0:
+                    pass
+                elif len(scores) == 1:
+                    best_match = response[0]
+                else:
+                    scores = np.array(list(map(lambda x: return x['score'],response)))
+                    # get index of biggest outlier in set of scores
+                    # Algorithm for finding outliers - Z-score
+                    outlier_index = mad_based_outlier(scores,OUTLIER_THRESHOLD)
+                    if outlier_index >= 0:
+                        best_match = response[outlier_index]
 
-                with open(csv_file, open_mode) as freport:
-                    freport.write(report_format.format(stamp,station,best_match['score'],best_match['index']))
-                print('Complited dispatch data number')
+                ############ Save info to log if outliers was found
+                # Format is: time, station,score,artist,title
+                if best_match != None:
+                    ############## Extract timestamp and station name form filename ###########
+                    # filename is a full filename of raw audio fragemnt, 
+                    # 1. Extract actual name of the file (withot derectories)
+                    filename_splitted = filename.rsplit('/',1)[-1]
+                    # 2. Remove extension part of filename
+                    filename_splitted = filename_splitted.split('.')[0]
+                    # now filename contains timestamp and name of the station:
+                    # timestamp_station
+                    filename_splitted = filename_splitted.rsplit('_',1)
+                    stamp = filename_splitted[0]
+                    ############## Timestamp is extracted #########
+
+                    # extract station name from filename
+                    station = filename_splitted[1]
+                    
+                    ############### HTTP request for track metadata(artist and title) by id ##########
+                    url = index_url + '/' + index_method_name
+                    params = 'id='+str(best_match['id'])
+                    response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
+                    response = json.loads(response)['result'][0]
+                    artist = response['metadata']['artist']
+                    title = response['metadata']['title']
+                    ############### Metadata received #############
+
+                    open_mode = 'a' if os.path.exists(csv_file) else 'w'
+                    with open(csv_file, open_mode) as freport:
+                        freport.write(report_format.format(stamp,station,best_match['score'],artist, title))
+                    #Metadata and timestamp was saved to log ##############
+
+                    print('Complited dispatch data number')
             except urllib.error.URLError as e:
                 #print('Exception in thread',threading.current_thread.getName(),
                 #        str(e))
                 queue.append((track_hash,filename))
 
-#### End of client thread ####
+# This function tries to find outliers
+# with Z-score mathod:
+# Mark as outliers those points,
+# whose distance to mean is much bigger, than average distance
+# returns: index of the biggest outlier in array,
+# or -1 if such doesn't exist
+def mad_based_outlier(points, thresh=3.5):
+        if len(points.shape) == 1:
+            points = points[:,None]
+        max_outlier = -1
+        max_outlier_ind = -1
+        median = np.median(points, axis=0)
+        diff = np.sum((points - median)**2, axis=-1)
+        diff = np.sqrt(diff)
+        med_abs_deviation = np.median(diff)
+        for i, diff_i in enumerate(diff):
+            modified_z_score = 0.6745 * diff_i / med_abs_deviation
+            if modified_z_score > thresh:
+                if modified_z_score > max_outlier:
+                    max_outlier = modified_z_score
+                    max_outlier_ind = i
+        return max_outlier_ind
+#End of client thread ####
 
 # Output queue      # output event #
 # None              # None         #        
