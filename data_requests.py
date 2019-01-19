@@ -6,8 +6,8 @@ recognize_method_name = 'query/set_int'
 index_url = 'http://echoprint.music365.pro:5000'
 root_dir = '/home/dmitri/quinta-v2'
 index_method_name = 'tracks'
-db_path = '/home/dmitri/database/ddb'
-def echorpint_recognize(track_hash):
+db_path = '/home/dmitri/database/music_db'
+def echoprint_recognize(track_hash):
     url = query_url+ '/' + recognize_method_name
     params = 'echoprint='+track_hash
     response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
@@ -19,26 +19,26 @@ def echoprint_index(track_id):
     response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
     return response
 def db_track_index(track_id):
-    db_conn = sqlite3.connect(db_path)
-    cursor = db_conn.cursor();
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor();
     cursor.execute("select * from Tracks where TrackId = %s" % str(track_id))
     track = cursor.fetchone()
     conn.close()
     return track
 def db_accident_insert(accident):
-    db_conn = sqlite3.connect(db_path)
-    cursor = db_conn.cursor();
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor();
     station_name = accident[1]
-    cursor.execute('select StationId from Stations')
+    cursor.execute('select StationId from Stations where StationTitle = \"%s\"' % station_name)
     station_id = cursor.fetchone()[0]
     accident[1] = station_id
     cursor.execute("insert into Accidents values(?,?,?,?,?)",accident)
     conn.commit()
     conn.close()
-def db_stations_list():
-    db_conn = sqlite3.connect(db_path)
-    cursor = db_conn.cursor();
-    cursor.execute('Select StationName from Stations')
+def db_stationurl_get_by_name(station_name):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor();
+    cursor.execute('Select StationUrl from Stations where StationTitle = \"%s\"' % station_name)
     stations = cursor.fetchall()
     conn.close()
     return stations
