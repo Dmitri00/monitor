@@ -1,0 +1,10 @@
+/trunk_code
+*.swp
+*.swn
+/*.swo
+/*.orig
+/__pycache__
+*.pyc
+/curl_requests
+/stations
+/test_station.mp3
