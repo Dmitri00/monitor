@@ -12,21 +12,10 @@ import urllib,urllib.request
 import json
 import sqlite3
 from data_requests import *
-
+import os
 import os.path
 
-############ DEFINED CONSTANTS ###########
-OUTLIER_THRESHOLD = 5
-query_url = 'http://echoprint.music365.pro:5678'
-recognize_method_name = 'query/set_int'
-index_url = 'http://echoprint.music365.pro:5000'
-root_dir = '/home/dmitri/quinta-v2'
-index_method_name = 'tracks'
-csv_file = os.path.join(root_dir,'report.csv')
-report_header = 'starttime,endtime,station,score,artist,title\n'
-report_format = '{},{},{},{},{}\n'
-db_path = '/home/dmitri/database/music_db'
-
+from config import *
 #### Hasher thread ####
 
 #----------------------------------------------------------------------#
@@ -66,6 +55,10 @@ def hash_thread(queue, event, next_queue, next_event):
                print('hasher: data appended')
            print('Complited hash operation number {0}'.format(operation_num))
            print(rawaudio_filename)
+           # it is time to delete mp3 and raw files of the recorded audio fragment:
+           os.remove(rawaudio_filename)
+           mp3_file = rawaudio_filename[:-3] + 'mp3'
+           os.remove(mp3_file)
        if next_event!=None:
            next_event.set()
            print('hasher: event set')
@@ -128,9 +121,6 @@ def client_thread(queue,event,next_queue,next_event):
 
             try:
                 ############ http request for recognition ############
-                #url = query_url+ '/' + recognize_method_name
-                #params = 'echoprint='+track_hash
-                #response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
                 response = echoprint_recognize(track_hash)
                 response = json.loads(response)['results']
                 ############ end http request for recognition ########
@@ -181,23 +171,11 @@ def client_thread(queue,event,next_queue,next_event):
                         #open_mode = 'a' if os.path.exists(csv_file) else 'w'
                         accident = [None,station,index_prev,start_stamp,end_stamp]
                         db_accident_insert(accident)
-                        #with open(csv_file, open_mode) as freport:
-                            #freport.write(report_format.format(start_stamp,end_stamp,station,artist, title))
                             #Metadata and timestamp was saved to log ##############
                     if best_match['index'] != -1:
                         print("OUTLIER FOUND!")
                         start_stamp = stamp
                         print("Track is started")
-                        ############### HTTP request for track metadata(artist and title) by id ##########
-                        #url = index_url + '/' + index_method_name
-                        #params = 'id='+str(best_match['index'])
-                        #response = urllib.request.urlopen(url, data=params.encode('ascii')).read().decode('ascii')
-                        #response = echoprint_index(best_match['index'])
-                        #response = json.loads(response)['result'][0]
-                        #artist = response['metadata']['artist']
-                        #title = response['metadata']['title']
-                        ############### Metadata received #############
-                        print("client: track data are fetched")
                 else:# at previous window track was the same
                     pass
                 index_prev = best_match['index']
