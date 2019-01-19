@@ -9,21 +9,8 @@ import sys
 import threading
 import urllib.request
 from collections import deque
-
-REMOVE_MP3 = False
-RECORD_PERIOD = 30
-#target_dir = '/home/dmitri/quinta/fifos'
-target_dir  = 'd:\quinta'
-stations  = {'brklassik':'http://streams.br-online.de/br-klassik_2.m3u',
-            'dkultur': 'http://www.deutschlandradio.de/streaming/dkultur.m3u',
-            'dlf':'http://www.deutschlandradio.de/streaming/dlf.m3u',
-            'dwissen':'http://dradio_mp3_dwissen_m.akacast.akamaistream.net/7/728/142684/v1/gnl.akacast.akamaistream.net/dradio_mp3_dwissen_m',
-            'erfplus': 'http://c14000-l.i.core.cdn.streamfarm.net/14000cina/live/3212erf_96/live_de_96.mp3',
-            'mdrklassik': 'http://avw.mdr.de/livestreams/mdr_klassik_live_128.m3u',
-            'radioeins': 'http://www.radioeins.de/live.m3u',
-            'swr2': 'http://mp3-live.swr.de/swr2_m.m3u',
-            'wdr3': 'http://www.wdr.de/wdrlive/media/mp3/wdr3_hq.m3u'
-            }
+from config import RECORD_PERIOD, target_dir
+#target_dir  = 'd:\quinta'
 stations_debug  = {'brklassik':'http://streams.br-online.de/br-klassik_2.m3u',
             'dlf':'http://www.deutschlandradio.de/streaming/dlf.m3u',
             }
@@ -70,7 +57,7 @@ def connect_to_station(streamurl):
     stream_type = ''
     if(content_type == 'audio/mpeg'):
         stream_type = '.mp3'
-    elif(content_type == 'application/ogg' or content_type == 'audio/ogg'):
+    elif(content_type == 'application/ogg' or content_type == 'audio/ogg' or content_type=='application/octet-stream'):
         stream_type = '.ogg'
     elif(content_type == 'audio/x-mpegurl'):
         print('Sorry, M3U playlists are currently not supported')
@@ -87,7 +74,7 @@ def save_stream(station_name, conn, next_queue, next_event):
     while 1:
         # files_dict contains mapping {tcp connection object} -> {file descriptor object}
         # and the code below saves stream to the corresp. file
-        cur_dt_string = datetime.datetime.now().strftime('%Y-%m-%dT%H_%M_%S')
+        cur_dt_string = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
         filename = target_dir + os.sep + cur_dt_string + "_" + station_name
         mp3file = open(filename,'wb')
         timer = threading.Timer(RECORD_PERIOD,stub)
@@ -102,7 +89,7 @@ def save_stream(station_name, conn, next_queue, next_event):
             if readn< 1024:
                 print("Error: {} bytes written, but expected {}".format('',readn,1024))
         mp3file.close()
-        next_queue.append(mp3file)
+        next_queue.append(filename)
         # Signal handler of the next_queue
         next_event.set()
 ################# end of data provider thread ############
@@ -129,19 +116,22 @@ def ffmpeg_thread(queue,event,next_queue, next_event):
         event.clear()
         while len(queue) > 0:
             infilename = queue.popleft()
+            print(infilename)
             outfilename = infilename[:-3] + 'raw'
+            os.mkfifo(outfilename,0o600)
+            print(outfilename)
             if os.fork() == 0:
                 os.execlp('ffmpeg','ffmpeg',
                         '-i',infilename,    #input filename
                         '-ac','1',          # number of channels
                         '-ar','11025',      # frequncy of output signal
                         '-f','f32le',       # format of output signal - floating p
-                        outfilename,
-                        '-loglevel','quiet')   # remove all output from ffmpeg itself
+                        "-y",
+                        outfilename
+                       #,'-loglevel','quiet'
+                        )   # remove all output from ffmpeg itself
             if next_queue!=None:
                 next_queue.append(outfilename)
-            if REMOVE_MP3:
-                os.remove(infilename)
         if next_event!=None:
             next_event.set()
 #### end of ffmpeg thread ####
@@ -154,10 +144,15 @@ def ffmpeg_thread(queue,event,next_queue, next_event):
 
 
 def main():
-    t = threading.Thread(target=station_thread, args=('dlf',stations_debug['dlf'], ffmpeg_queue,ffmpeg_event))
+    if len(sys.argv) < 3:
+            printf("Please specify station name and url: radirec2.py name url");
+            return;
+    station_name = sys.argv[1];
+    station_url = sys.argv[2];
+    t = threading.Thread(target=station_thread, args=(station_name,station_url, ffmpeg_queue,ffmpeg_event))
     t.start()
-    #t = threading.Thread(target=ffmpeg_thread, args=(ffmpeg_queue, stream_files_ready,None, None))
-    #t.start()
+    t = threading.Thread(target=ffmpeg_thread, args=(ffmpeg_queue, ffmpeg_event,None, None))
+    t.start()
 
     
 
