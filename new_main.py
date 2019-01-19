@@ -1,10 +1,13 @@
+#!/usr/bin/python3
 import time
 import threading
 import os
+import sys
 from collections import deque
 from hash_client import hash_thread, client_thread
 from radiorec2 import station_thread, ffmpeg_thread, stations_debug
 import signal
+from data_requests import db_stationurl_get_by_name
 
 
 
@@ -12,6 +15,16 @@ import signal
 
 
 if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print("Please specify station name and url: radirec2.py name");
+        sys.exit(0);
+    station_name = sys.argv[1]
+    station_url = db_stationurl_get_by_name(station_name)
+    if station_url == None:
+        print('Station with name %s doesn\'t exist' % staion_name)
+    station_url = station_url[0][0]
+    print(station_url)
+
 
     
     # ask unix core to call wait of child zombies (ffmpeg) autoatically
@@ -30,7 +43,7 @@ if __name__ == '__main__':
     client_event.clear()
     client_queue = deque()
 
-    t = threading.Thread(target=station_thread, args=(stations_debug,
+    t = threading.Thread(target=station_thread, args=(station_name,station_url,
         ffmpeg_queue,ffmpeg_event))
     t.start()
     
