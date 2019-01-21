@@ -5,8 +5,8 @@ from collections import deque
 import threading
 # parse byte array 
 import struct
-# calculate echoprint hash of audiosample
-import echoprint
+# calculate echologging.info hash of audiosample
+import echologging.info
 # for managing HTTP Requests
 import urllib,urllib.request
 import json
@@ -16,6 +16,7 @@ import os
 import os.path
 
 from config import *
+import logging
 #### Hasher thread ####
 
 #----------------------------------------------------------------------#
@@ -35,33 +36,33 @@ def hash_thread(queue, event, next_queue, next_event):
    # So hash thread will process files from previous period of observation.
    # In order to do that, additional event.wait() and tracking of new files
    # will be used
-   print('hasher: waiting for event')
+   logging.info('hasher: waiting for event')
 #   event.wait()
 #   event.clear()
 #   ready_files = len(queue)
    while True:
-       print('hasher: waiting for event')
+       logging.info('hasher: waiting for event')
        event.wait()
        event.clear()
        ready_files = len(queue)
        # process that filenames, that was added by ffmpeg thread at
        # previous period
-       print("ready_files =",ready_files)
+       logging.info("ready_files =",ready_files)
        for _ in range(ready_files):
            rawaudio_filename = queue.popleft()
            data=getter_sound(rawaudio_filename)
            if next_queue!=None:
                next_queue.append((data,rawaudio_filename))
-               print('hasher: data appended')
-           print('Complited hash operation number {0}'.format(operation_num))
-           print(rawaudio_filename)
+               logging.info('hasher: data appended')
+           logging.info('Complited hash operation number {0}'.format(operation_num))
+           logging.info(rawaudio_filename)
            # it is time to delete mp3 and raw files of the recorded audio fragment:
            os.remove(rawaudio_filename)
            mp3_file = rawaudio_filename[:-3] + 'mp3'
            os.remove(mp3_file)
        if next_event!=None:
            next_event.set()
-           print('hasher: event set')
+           logging.info('hasher: event set')
        # rest of the files was added on current time interval atmost 
        # and should be ready in the next period (if there are not too much 
        # stations)
@@ -69,7 +70,7 @@ def hash_thread(queue, event, next_queue, next_event):
 
 def getter_sound(filename):
 
-    print( u'Start record')
+    logging.info( u'Start record')
     
 
     samples = []
@@ -83,8 +84,8 @@ def getter_sound(filename):
             fmt = '{}f'.format(len(buf)//4)
             samples.extend(struct.unpack(fmt,buf))
             
-    d = echoprint.codegen(samples, 0)
-    print( u'Complited.')
+    d = echologging.info.codegen(samples, 0)
+    logging.info( u'Complited.')
     return d['code']
 #### End of hasher thread ####
 
@@ -111,20 +112,20 @@ def client_thread(queue,event,next_queue,next_event):
     #if not os.paggh.exists(target_dir):
     #    os.mkdir(target_dir)
     while True:
-        print('client: waiting for event')
+        logging.info('client: waiting for event')
         event.wait()
         event.clear()
         while len(queue)>0:
             #Get values from queue
             (track_hash,filename)= queue.popleft()
-            print('client: event occured, queue len=',len(queue))
+            logging.info('client: event occured, queue len=',len(queue))
 
             try:
                 ############ http request for recognition ############
-                response = echoprint_recognize(track_hash)
+                response = echologging.info_recognize(track_hash)
                 response = json.loads(response)['results']
                 ############ end http request for recognition ########
-                print('Client: ',response)
+                logging.info('Client: ',response)
                 
                 #### Find recognized track as score outlier #########
                 best_match = None
@@ -139,7 +140,7 @@ def client_thread(queue,event,next_queue,next_event):
                     # Algorithm for finding outliers - Z-score
                     scores = np.array(list(map(lambda x: x['score'],response)))
                     outlier_index = find_outlier(scores)
-                    print("outlier:",outlier_index)
+                    logging.info("outlier:",outlier_index)
                     if outlier_index >= 0:
                         best_match = response[outlier_index]
                     else:
@@ -167,24 +168,24 @@ def client_thread(queue,event,next_queue,next_event):
                     end_stamp = stamp
 
                     if index_prev != None and index_prev != -1:
-                        print("Track is finished")
+                        logging.info("Track is finished")
                         #open_mode = 'a' if os.path.exists(csv_file) else 'w'
                         accident = [None,station,index_prev,start_stamp,end_stamp]
                         db_accident_insert(accident)
                             #Metadata and timestamp was saved to log ##############
                     if best_match['index'] != -1:
-                        print("OUTLIER FOUND!")
+                        logging.info("OUTLIER FOUND!")
                         start_stamp = stamp
-                        print("Track is started")
+                        logging.info("Track is started")
                 else:# at previous window track was the same
                     pass
                 index_prev = best_match['index']
-                print("client:end of cycle")
+                logging.info("client:end of cycle")
 
 
 
             except urllib.error.URLError as e:
-                print('Exception in thread',threading.current_thread().getName(),
+                logging.error('Exception in thread',threading.current_thread().getName(),
                         str(e))
 
 # This function tries to find outliers
@@ -228,7 +229,7 @@ if __name__ == '__main__':
             if i > 40:
                 break
             i+=1
-            print(name)
+            logging.info(name)
             hash_queue.append(os.path.join(dir_name,name))
     client_event = threading.Event()       
     client_event.clear()
