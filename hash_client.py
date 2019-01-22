@@ -6,7 +6,7 @@ import threading
 # parse byte array 
 import struct
 # calculate echologging.info hash of audiosample
-import echologging.info
+import echoprint
 # for managing HTTP Requests
 import urllib,urllib.request
 import json
@@ -47,7 +47,7 @@ def hash_thread(queue, event, next_queue, next_event):
        ready_files = len(queue)
        # process that filenames, that was added by ffmpeg thread at
        # previous period
-       logging.info("ready_files =",ready_files)
+       #logging.info("ready_files =%s",ready_files)
        for _ in range(ready_files):
            rawaudio_filename = queue.popleft()
            data=getter_sound(rawaudio_filename)
@@ -84,7 +84,7 @@ def getter_sound(filename):
             fmt = '{}f'.format(len(buf)//4)
             samples.extend(struct.unpack(fmt,buf))
             
-    d = echologging.info.codegen(samples, 0)
+    d = echoprint.codegen(samples, 0)
     logging.info( u'Complited.')
     return d['code']
 #### End of hasher thread ####
@@ -109,7 +109,7 @@ def client_thread(queue,event,next_queue,next_event):
     time_end = ''
     index_prev = None
     """thread client function"""
-    #if not os.paggh.exists(target_dir):
+    #if not os.pgh.exists(target_dir):
     #    os.mkdir(target_dir)
     while True:
         logging.info('client: waiting for event')
@@ -118,33 +118,32 @@ def client_thread(queue,event,next_queue,next_event):
         while len(queue)>0:
             #Get values from queue
             (track_hash,filename)= queue.popleft()
-            logging.info('client: event occured, queue len=',len(queue))
+            logging.info('client: event occured, queue len=%s'%len(queue))
 
             try:
                 ############ http request for recognition ############
-                response = echologging.info_recognize(track_hash)
+                response = echoprint_recognize(track_hash)
                 response = json.loads(response)['results']
                 ############ end http request for recognition ########
-                logging.info('Client: ',response)
+                logging.info('Client:%s '%response)
                 
                 #### Find recognized track as score outlier #########
                 best_match = None
-                if len(response) == 0:
-                    pass
-                elif len(response) == 1:
-                    best_match = response[0]
-                    if best_match['score'] < 100:
-                        best_match['index'] = -1
+                if len(response) < 4:
+                    logging.error("Too few scores were received from echoprint")
+                    sys.exit(1)
                 else:
                     # get index of biggest outlier in set of scores
                     # Algorithm for finding outliers - Z-score
                     scores = np.array(list(map(lambda x: x['score'],response)))
                     outlier_index = find_outlier(scores)
-                    logging.info("outlier:",outlier_index)
+                    logging.info("outlier:%s"%outlier_index)
                     if outlier_index >= 0:
                         best_match = response[outlier_index]
                     else:
                         best_match = {'index':-1}
+                del response
+                del scores
 
                 ############ Save info to log if outliers was found
                 # Format is: time, station,score,artist,title
@@ -185,8 +184,7 @@ def client_thread(queue,event,next_queue,next_event):
 
 
             except urllib.error.URLError as e:
-                logging.error('Exception in thread',threading.current_thread().getName(),
-                        str(e))
+                logging.error('Exception %s'% str(e))
 
 # This function tries to find outliers
 # with Z-score mathod:

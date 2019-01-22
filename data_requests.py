@@ -38,7 +38,7 @@ def db_accident_insert(accident):
 def db_stationurl_get_by_name(station_name):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor();
-    cursor.execute('Select StationUrl from Stations where StationTitle = \"%s\"' % station_name)
+    cursor.execute('Select StationId,StationUrl from Stations where StationTitle = \"%s\"' % station_name)
     stations = cursor.fetchall()
     conn.close()
     return stations

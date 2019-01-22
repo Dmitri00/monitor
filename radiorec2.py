@@ -10,7 +10,7 @@ import threading
 import urllib.request
 from collections import deque
 from config import RECORD_PERIOD, target_dir
-import loggingging
+import logging
 #target_dir  = 'd:\quinta'
 stations_debug  = {'brklassik':'http://streams.br-online.de/br-klassik_2.m3u',
             'dlf':'http://www.deutschlandradio.de/streaming/dlf.m3u',
@@ -66,7 +66,7 @@ def connect_to_station(streamurl):
     else:
         logging.info('Unknown content type "' + content_type + '". Assuming mp3.')
         stream_type = '.mp3'
-    logging.info('Succesessfull connection to ',streamurl)
+    logging.info('Succesessfull connection to %s',streamurl)
     return conn, stream_type
 
 def save_stream(station_name, conn, next_queue, next_event):
