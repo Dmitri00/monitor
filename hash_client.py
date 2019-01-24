@@ -66,32 +66,7 @@ def hash_thread(queue, event, next_queue, next_event):
         ready_files = len(queue)
 
 
-def getter_sound(filename):
 
-    logging.debug(u'Start record')
-
-    samples = []
-
-    def samples_gen(filename):
-    with open(filename, 'rb') as f:
-        buf = f.read(512)
-        while len(buf) == 512:
-            samples.extend(struct.unpack('128f', buf))
-            buf = f.read(512)
-        if len(buf) > 0:
-            fmt = '{}f'.format(len(buf)//4)
-            samples.extend(struct.unpack(fmt, buf))
-
-    d = echoprint.codegen(samples, 0)
-    logging.debug(u'Complited.')
-    return d['code']
-
-
-def push_data(filename, queue):
-    data = getter_sound(filename)
-    if queue != None:
-        queue.append((data, filename))
-        logging.debug('hasher: data appended')
 #### End of hasher thread ####
 
 # Output queue      # output event #
