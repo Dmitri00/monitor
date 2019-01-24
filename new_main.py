@@ -8,33 +8,28 @@ from hash_client import hash_thread, client_thread
 from radiorec2 import station_thread, ffmpeg_thread, stations_debug
 import signal
 from data_requests import db_stationurl_get_by_name
-from config import log_file
+from config import log_file,lock_file
 import logging
+import atexit
+
+def sigusr1_handler(a,b):
+    logging.info("SIGUSR1 was catched - exitig")
+    sys.exit(0)
 
 def unlock_daemon(lock_file):
+    logging.info("Freeing lock at %s"%  lock_file)
     try:
         os.unlink(lock_file)
-    except OSError e:
-            logging.error("os.unlink failed: %d (%s)\nUnable to remove daemon\s lock" % (e.errno, e.strerror))
-            os.exit(1)
+    except OSError as e:
+        sys.stderr.write("errno=%d (%s)\n" % (e.errno, e.strerror))
 
-def daemonize(station_name):
-    try:
-        lock_file = '/tmp/' + station_name
-        os.is_file(lock_file):
-            logging.info('Daemon for station %s is already running. Closing this instance.')
-            sys.exit(1)
-        file(lock_file,'r').close()
-        atexit.register(lambda x: unlock_daemon(lock_file))
-    except OSError e:
-            logging.error("os.is_file failed: %d (%s)\nUnable to run station\'s daemon" % (e.errno, e.strerror))
-            sys.exit(1)
+def daemonize(station_id):
     try: 
         pid = os.fork() 
         if pid > 0:
             # exit first parent
             sys.exit(0) 
-    except OSError, e: 
+    except OSError as e: 
         sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
         sys.exit(1)
     
@@ -49,9 +44,10 @@ def daemonize(station_name):
         if pid > 0:
             # exit from second parent
             sys.exit(0) 
-    except OSError, e: 
+    except OSError as e: 
         sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
         sys.exit(1) 
+       
 
     # redirect standard file descriptors
     sys.stdout.flush()
@@ -61,7 +57,7 @@ def daemonize(station_name):
     os.close(sys.stdout.fileno())
     os.open('/dev/null',os.O_WRONLY)
     os.close(sys.stderr.fileno())
-    os.open('/dev/null',os.O_WRONLY)
+    os.open('/home/dmitri/quinta_error',os.O_WRONLY|os.O_CREAT,0o644)
 
     # set handlers for SIG_CHLD, SIG_HUP
     
@@ -69,6 +65,18 @@ def daemonize(station_name):
     signal.signal(signal.SIGHUP,signal.SIG_IGN)
 
     # write pidfile
+    lock_file = '/home/dmitri/'+station_id
+    logging.debug("Lock file = %s" % lock_file)
+    try:
+        lockfd = os.open(lock_file, os.O_RDWR|os.O_CREAT|os.O_EXCL,0o600)
+        os.write(lockfd,bytes(str(os.getpid()),encoding='utf-8'))
+        os.close(lockfd)
+    except OSError as e:
+        logging.error('Daemon for station %s is already running. Closing this instance.'%station_id)
+        sys.stderr.write("lock failed: %d (%s)\n" % (e.errno, e.strerror))
+        sys.exit(1)
+    signal.signal(signal.SIGUSR1,sigusr1_handler)
+    atexit.register(lambda : unlock_daemon(lock_file))
 
 
 
@@ -78,14 +86,15 @@ if __name__ == '__main__':
         print("Please specify station name and url: radirec2.py name");
         sys.exit(0);
     station_name = sys.argv[1]
-    station_url = db_stationurl_get_by_name(station_name)
-    if station_url == None:
+    station = db_stationurl_get_by_name(station_name)
+    if station == None:
         print('Station with name %s doesn\'t exist' % staion_name)
-    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.DEBUG)
+    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
-    station_url = station_url[0][0]
-    logging.info('Попытка подключения к %s ' % station_url)
-    daemonize(station_name)
+    station_url = station[0][1]
+    station_id = station[0][0]
+    logging.info('Попытка подключения к %s, %s ' % (station_url, station_id))
+    daemonize(str(station_id))
 
 
     
@@ -112,10 +121,12 @@ if __name__ == '__main__':
         hash_queue, hash_event))
     t.start()
 
+    #t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, hash_event,
+        #client_queue, client_event))
     t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, hash_event,
-        client_queue, client_event))
-    t.start()
-
-    t = threading.Thread(name='Client',target=client_thread, args=(client_queue,client_event,
         None, None))
     t.start()
+
+    #t = threading.Thread(name='Client',target=client_thread, args=(client_queue,client_event,
+        #None, None))
+    #t.start()
