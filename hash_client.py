@@ -13,10 +13,11 @@ import json
 import os
 import os.path
 import logging
+import subprocess
 
-import echoprint
 from data_requests import echoprint_recognize, db_accident_insert
 import numpy as np
+from config import echoprint_codegen_path
 #### Hasher thread ####
 
 #----------------------------------------------------------------------#
@@ -49,13 +50,13 @@ def hash_thread(queue, event, next_queue, next_event):
         # previous period
         #logging.info("ready_files =%s",ready_files)
         for _ in range(ready_files):
-            rawaudio_filename = queue.popleft()
-            push_data(rawaudio_filename, next_queue)
-            logging.info(rawaudio_filename)
+            audio_filename = queue.popleft()
+            echoprint_process = subprocess.run([echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
+            track_hash = json.loads(echoprint_process)[0]['code']
             # it is time to delete mp3 and raw files of the recorded audio fragment:
-            os.unlink(rawaudio_filename)
-            mp3_file = rawaudio_filename[:-3] + 'mp3'
-            os.unlink(mp3_file)
+            if next_queue != None:
+                next_queue.append((track_hash,audio_filename))
+            os.unlink(audio_filename)
         if next_event != None:
             next_event.set()
             logging.debug('hasher: event set')
