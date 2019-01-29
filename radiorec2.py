@@ -45,14 +45,14 @@ def connect_to_station(streamurl):
                         break
             streamurl = tmpstr
         except urllib.error.URLError:
-            logging.error('Error during connection to ', streamurl)
+            logging.error('Error during connection to %s', streamurl)
             return None, None
 
     # establich connection and check format of the stream
     try:
         conn = urllib.request.urlopen(streamurl)
     except urllib.error.URLError:
-        logging.error('Error during connection to ', streamurl)
+        logging.error('Error during connection to %s', streamurl)
         return None, None
 
     content_type = conn.getheader('Content-Type')
