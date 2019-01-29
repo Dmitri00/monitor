@@ -1,6 +1,7 @@
 ############ IMPORTS ############
 # container for thread's input and output queue
 from collections import deque
+from queue import Queue
 # for running threads in main for test
 import threading
 # parse byte array
@@ -14,10 +15,12 @@ import os
 import os.path
 import logging
 import subprocess
+import re
 
 from data_requests import echoprint_recognize, db_accident_insert
 import numpy as np
-from config import echoprint_codegen_path
+from config import echoprint_codegen_path, filename_rgexp
+
 #### Hasher thread ####
 
 #----------------------------------------------------------------------#
@@ -28,45 +31,18 @@ from config import echoprint_codegen_path
 #----------------------------------------------------------------------#
 
 
-def hash_thread(queue, event, next_queue, next_event):
+def hash_thread(queue, next_queue):
     """thread hash function"""
-    operation_num = 0
-    # hash thread reads files, made by ffmpeg.
-    # python ffmpeg thread executes ffmpeg and add ffmpeg output file
-    # to the hash buffer. A confilict can occure: filename is
-    # in hash_thread buffer, but it is not physically written by ffmpeg
-    # So hash thread will process files from previous period of observation.
-    # In order to do that, additional event.wait() and tracking of new files
-    # will be used
-#   event.wait()
-#   event.clear()
-#   ready_files = len(queue)
     while True:
         logging.debug('hasher: waiting for event')
-        event.wait()
-        event.clear()
-        ready_files = len(queue)
-        # process that filenames, that was added by ffmpeg thread at
-        # previous period
-        #logging.info("ready_files =%s",ready_files)
-        for _ in range(ready_files):
-            audio_filename = queue.popleft()
-            echoprint_process = subprocess.run([echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
-            try:
-                track_hash = json.loads(echoprint_process.stdout)[0]['code']
-                # it is time to delete mp3 and raw files of the recorded audio fragment:
-                if next_queue != None:
-                    next_queue.append((track_hash,audio_filename))
-                os.unlink(audio_filename)
-            except KeyError:
-                logging.error('Модуль echoprint-codegen возвратил json без поля code. Файл %s' % audio_filename)
-        if next_event != None:
-            next_event.set()
-            logging.debug('hasher: event set')
-        # rest of the files was added on current time interval atmost
-        # and should be ready in the next period (if there are not too much
-        # stations)
-        ready_files = len(queue)
+        audio_filename = queue.get()
+        echoprint_process = subprocess.run([echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
+        try:
+            track_hash = json.loads(echoprint_process.stdout)[0]['code']
+            if next_queue != None:
+                next_queue.put((track_hash,audio_filename))
+        except KeyError:
+            logging.error('Модуль echoprint-codegen возвратил json без поля code. Файл %s' % audio_filename)
 
 
 
@@ -83,63 +59,54 @@ def hash_thread(queue, event, next_queue, next_event):
 # client_queue  # client_event      # None              # None         #
 # bytes of hash #                 #                   #
 #----------------------------------------------------------------------#
-def client_thread(queue, event, next_queue, next_event):
+def client_thread(queue, next_queue):
     """thread client function"""
     # if not os.pgh.exists(target_dir):
     #    os.mkdir(target_dir)
+    filename_re = re.compile(filename_rgexp)
+    recognized_indexes = deque()
     index_prev = None
     time_start = ''
     time_end = ''
     while True:
         logging.debug('client: waiting for event')
-        event.wait()
-        event.clear()
-        while len(queue) > 0:
             # Get values from queue
-            (track_hash, filename) = queue.popleft()
-            logging.debug('client: event occured, queue len=%s' % len(queue))
+        (track_hash, filename) = queue.get()
+        logging.debug('client: event occured')
 
-            try:
-                ############ http request for recognition ############
-                best_match = get_bestMatch(track_hash)
-                del track_hash
+        os.unlink(filename)
+        try:
+            ############ http request for recognition ############
+            best_match = get_bestMatch(track_hash)
 
-                # Save info to log if outliers was found
-                # Format is: time, station,score,artist,title
-                if index_prev != best_match['index']:
-                    ############## Extract timestamp and station name from filename ###########
-                    # filename is a full filename of raw audio fragemnt,
-                    # 1. Extract actual name of the file (withot derectories)
-                    filename_splitted = filename.rsplit('/', 1)[-1]
-                    # 2. Remove extension part of filename
-                    filename_splitted = filename_splitted.split('.')[0]
-                    # now filename contains timestamp and name of the station:
-                    # timestamp_station
-                    filename_splitted = filename_splitted.rsplit('_', 1)
-                    stamp = filename_splitted[0].replace('_', ' ')
-                    ############## Timestamp is extracted #########
+            # Save info to log if outliers was found
+            # Format is: time, station,score,artist,title
+            if index_prev != best_match['index']:
+                filename_match = filename_re.search(filename)
+                stamp = filename_match['timestamp'].replace('_', ' ')
+                station = filename_match['station_name']
 
-                    # extract station name from filename
-                    station = filename_splitted[1]
+                end_stamp = stamp
+                ############## Timestamp is extracted #########
 
-                    end_stamp = stamp
+                # extract station name from filename
 
-                    if index_prev != None and index_prev != -1:
-                        logging.info("Track is finished")
-                        #open_mode = 'a' if os.path.exists(csv_file) else 'w'
-                        accident = [None, station, index_prev,
-                                    start_stamp, end_stamp]
-                        db_accident_insert(accident)
-                        #Metadata and timestamp was saved to log ##############
-                    if best_match['index'] != -1:
-                        start_stamp = stamp
-                        logging.info("Track is started")
-                else:  # at previous window track was the same
-                    pass
-                index_prev = best_match['index']
+                if index_prev != None and index_prev != -1:
+                    logging.info("Track is finished")
+                    #open_mode = 'a' if os.path.exists(csv_file) else 'w'
+                    accident = [None, station, index_prev,
+                                start_stamp, end_stamp]
+                    db_accident_insert(accident)
+                    #Metadata and timestamp was saved to log ##############
+                if best_match['index'] != -1:
+                    start_stamp = stamp
+                    logging.info("Track is started")
+            else:  # at previous window track was the same
+                pass
+            index_prev = best_match['index']
 
-            except urllib.error.URLError as e:
-                logging.error('Exception %s' % str(e))
+        except urllib.error.URLError as e:
+            logging.error('Exception %s' % str(e))
 
 # This function tries to find outliers
 # with Z-score mathod:
@@ -191,7 +158,9 @@ def get_bestMatch(track_hash):
             best_match = {'index': -1}
 
     return best_match
+
 #End of client thread ####
+
 
 # Output queue      # output event #
 # None              # None         #

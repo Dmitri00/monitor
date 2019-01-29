@@ -9,6 +9,7 @@ import sys
 import threading
 import urllib.request
 from collections import deque
+from queue import Queue
 from config import RECORD_PERIOD, target_dir
 import logging
 import subprocess
@@ -23,13 +24,13 @@ stations_debug = {'brklassik': 'http://streams.br-online.de/br-klassik_2.m3u',
 # Input         # Output queue      # output event #
 # stations list # ffmpeg_queue      # ffmpeg_event #
 
-def station_thread(station_name, station_url, next_queue, next_event):
+def station_thread(station_name, station_url, next_queue):
     conn_dict = {}
     conn, extension = connect_to_station(station_url)
     if conn != None:
         name = station_name+extension
         logging.info('connection established')
-        save_stream(name, conn, next_queue, next_event)
+        save_stream(name, conn, next_queue)
 
 
 def connect_to_station(streamurl):
@@ -72,14 +73,16 @@ def connect_to_station(streamurl):
     return conn, stream_type
 
 
-def save_stream(station_name, conn, next_queue, next_event):
+def save_stream(station_name, conn, next_queue):
     # stub for threading.Timer callback
     def stub(): return 0 == 0
     while 1:
         # files_dict contains mapping {tcp connection object} -> {file descriptor object}
         # and the code below saves stream to the corresp. file
         cur_dt_string = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        filename = target_dir + os.sep + cur_dt_string + "_" + station_name
+        filename = target_dir + os.sep + cur_dt_string + "__" + station_name
+
+        logging.debug('start of record')
         mp3file = open(filename, 'wb')
         timer = threading.Timer(RECORD_PERIOD, stub)
         timer.start()
@@ -94,9 +97,7 @@ def save_stream(station_name, conn, next_queue, next_event):
                 logging.error(
                     "Error: {} bytes written, but expected {}".format('', readn, 1024))
         mp3file.close()
-        next_queue.append(filename)
-        # Signal handler of the next_queue
-        next_event.set()
+        next_queue.put(filename)
 ################# end of data provider thread ############
 
 # Output queue      # output event #
@@ -109,17 +110,12 @@ def save_stream(station_name, conn, next_queue, next_event):
 # ffmpeg_queue  # ffmpeg_event      # hasher_queue      # hasher_event #
 
 
-ffmpeg_event = threading.Event()
-ffmpeg_event.clear()
-ffmpeg_queue = deque()
-
-
-def ffmpeg_thread(queue, event, next_queue, next_event):
+def ffmpeg_thread(queue, next_queue):
     while 1:
         event.wait()
         event.clear()
         while len(queue) > 0:
-            infilename = queue.popleft()
+            infilename = queue.get()
             logging.info(infilename)
             outfilename = infilename[:-3] + 'raw'
             os.mkfifo(outfilename, 0o600)
@@ -134,9 +130,7 @@ def ffmpeg_thread(queue, event, next_queue, next_event):
                                 # ,'-loglevel','quiet'
                                 )   # remove all output from ffmpeg itself
             if next_queue != None:
-                next_queue.append(outfilename)
-        if next_event != None:
-            next_event.set()
+                next_queue.put(outfilename)
 #### end of ffmpeg thread ####
 
 # Output queue      # output event #

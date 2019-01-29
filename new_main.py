@@ -4,6 +4,7 @@ import threading
 import os
 import sys
 from collections import deque
+from queue import Queue
 from hash_client import hash_thread, client_thread
 from radiorec2 import station_thread, ffmpeg_thread, stations_debug
 import signal
@@ -89,7 +90,7 @@ if __name__ == '__main__':
     station = db_stationurl_get_by_name(station_name)
     if station == None:
         print('Station with name %s doesn\'t exist' % staion_name)
-    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.DEBUG)
 
     station_url = station[0][1]
     station_id = station[0][0]
@@ -102,25 +103,17 @@ if __name__ == '__main__':
     # ffmpeg_thread creates childs for running ffmpeg
     # it is possible to place signal handler in main thread
 
-    hash_event = threading.Event()       
-    hash_event.clear()
-    hash_queue = deque()
+    hash_queue = Queue()
 
-    client_event = threading.Event()       
-    client_event.clear()
-    client_queue = deque()
+    client_queue = Queue()
 
-    t = threading.Thread(target=station_thread, args=(station_name,station_url,
-        hash_queue,hash_event))
+    t = threading.Thread(target=station_thread, args=(station_name,station_url,hash_queue))
     t.start()
     
 
-    t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, hash_event,
-        client_queue, client_event))
-    #t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, hash_event,
-        #None, None))
+    t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, client_queue))
+    #t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, None))
     t.start()
 
-    t = threading.Thread(name='Client',target=client_thread, args=(client_queue,client_event,
-        None, None))
+    t = threading.Thread(name='Client',target=client_thread, args=(client_queue, None))
     t.start()
