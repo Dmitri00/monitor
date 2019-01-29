@@ -52,11 +52,14 @@ def hash_thread(queue, event, next_queue, next_event):
         for _ in range(ready_files):
             audio_filename = queue.popleft()
             echoprint_process = subprocess.run([echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
-            track_hash = json.loads(echoprint_process)[0]['code']
-            # it is time to delete mp3 and raw files of the recorded audio fragment:
-            if next_queue != None:
-                next_queue.append((track_hash,audio_filename))
-            os.unlink(audio_filename)
+            try:
+                track_hash = json.loads(echoprint_process.stdout)[0]['code']
+                # it is time to delete mp3 and raw files of the recorded audio fragment:
+                if next_queue != None:
+                    next_queue.append((track_hash,audio_filename))
+                os.unlink(audio_filename)
+            except KeyError:
+                logging.error('Модуль echoprint-codegen возвратил json без поля code. Файл %s' % audio_filename)
         if next_event != None:
             next_event.set()
             logging.debug('hasher: event set')
