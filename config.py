@@ -1,9 +1,13 @@
 
 ############ DEFINED CONSTANTS ###########
-OUTLIER_THRESHOLD = 5
-RECORD_PERIOD = 30
+is_daemon = True
+log_level = 'debug'
+OUTLIER_THRESHOLD = 3
+RECORD_PERIOD = 45 
+minimal_track_len = 3
+REMOVE_MP3 = False
+
 target_dir = '/tmp'
-REMOVE_MP3 = True
 query_url = 'http://echoprint.music365.pro:5678'
 recognize_method_name = 'query/set_int'
 index_url = 'http://echoprint.music365.pro:5000'
@@ -14,3 +18,4 @@ db_path = '/home/dmitri/database/music_db'
 log_file = '/home/dmitri/quinta.log'
 lock_file = '/home/dmitri/quinta.lock'
 echoprint_codegen_path = '/home/dmitri/echoprint-codegen/echoprint-codegen'
+filename_rgexp = '/(?P<timestamp>.*)__(?P<station_name>.*)\..*$'
