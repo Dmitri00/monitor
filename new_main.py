@@ -9,7 +9,7 @@ from hash_client import hash_thread, client_thread
 from radiorec2 import station_thread, ffmpeg_thread, stations_debug
 import signal
 from data_requests import db_stationurl_get_by_name
-from config import log_file,lock_file
+from config import log_file,lock_file, is_daemon
 import logging
 import atexit
 
@@ -87,17 +87,15 @@ if __name__ == '__main__':
         print("Please specify station name and url: radirec2.py name");
         sys.exit(0);
     station_name = sys.argv[1]
+    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.DEBUG)
     station = db_stationurl_get_by_name(station_name)
     if station == None:
         print('Station with name %s doesn\'t exist' % staion_name)
-    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.DEBUG)
-
     station_url = station[0][1]
     station_id = station[0][0]
     logging.info('Попытка подключения к %s, %s ' % (station_url, station_id))
-    daemonize(str(station_id))
-
-
+    if is_daemon:
+        daemonize(str(station_id))
     
     # ask unix core to call wait of child zombies (ffmpeg) autoatically
     # ffmpeg_thread creates childs for running ffmpeg
