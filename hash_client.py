@@ -19,7 +19,7 @@ import re
 
 from data_requests import echoprint_recognize, db_accident_insert
 import numpy as np
-from config import echoprint_codegen_path, filename_rgexp
+from config import echoprint_codegen_path, filename_rgexp, REMOVE_MP3, minimal_track_len, OUTLIER_THRESHOLD
 
 #### Hasher thread ####
 
@@ -61,11 +61,10 @@ def hash_thread(queue, next_queue):
 #----------------------------------------------------------------------#
 def client_thread(queue, next_queue):
     """thread client function"""
-    # if not os.pgh.exists(target_dir):
-    #    os.mkdir(target_dir)
     filename_re = re.compile(filename_rgexp)
-    recognized_indexes = deque()
-    index_prev = None
+    recognized_files = deque()
+    curr_track = None
+    track_len = 0
     time_start = ''
     time_end = ''
     while True:
@@ -73,40 +72,65 @@ def client_thread(queue, next_queue):
             # Get values from queue
         (track_hash, filename) = queue.get()
         logging.debug('client: event occured')
-
-        os.unlink(filename)
+        need_save_track = False
         try:
             ############ http request for recognition ############
             best_match = get_bestMatch(track_hash)
+            assert best_match != None
 
             # Save info to log if outliers was found
             # Format is: time, station,score,artist,title
-            if index_prev != best_match['index']:
+
+            # now we need to figure out whatever we need to store info about track into db
+
+            # if track in the current window the same as in previous, than just mark it and skip
+            if curr_track == best_match['index']:
+                if curr_track != -1:
+                    track_len += 1
+                    recognized_files.append(filename)
+            else:
+                # now we know, that atleast something new happened
+                # it could be an initial state of the algorithm, end of speech or of a track
+                # So, station name and time stamp should be parsed
                 filename_match = filename_re.search(filename)
                 stamp = filename_match['timestamp'].replace('_', ' ')
                 station = filename_match['station_name']
 
-                end_stamp = stamp
-                ############## Timestamp is extracted #########
-
-                # extract station name from filename
-
-                if index_prev != None and index_prev != -1:
-                    logging.info("Track is finished")
-                    #open_mode = 'a' if os.path.exists(csv_file) else 'w'
-                    accident = [None, station, index_prev,
-                                start_stamp, end_stamp]
-                    db_accident_insert(accident)
-                    #Metadata and timestamp was saved to log ##############
+                # Figuring out, what to do with previously recognized track
+                #if it is the initial state (no tracks were recognized in the past)
+                # then there is nothing to do at this step
+                if track_len == 0:
+                    pass
+                #else if it is not and initial state and previous track was not a speech
+                #additionally check, that previous track was being observed long enough to be confident
+                # then save info to db, clear track length counter
+                elif curr_track >= 0:
+                    if REMOVE_MP3:
+                        for track in recognized_files:
+                            os.unlink(track)
+                    recognized_files.clear()
+                    if track_len >= minimal_track_len:
+                        end_stamp = stamp
+                        accident = [None, station, index_prev,
+                                    start_stamp, end_stamp]
+                        db_accident_insert(accident)
+                        logging.info("Track is finished")
+                    track_len = 0
+                #finally, if current index is not -1 (not a speech or unrecognized)
+                # then mark timestamp as beginning of the new track and initialize track length
                 if best_match['index'] != -1:
                     start_stamp = stamp
+                    curr_track = best_match['index']
+                    track_len = 1
+                    recognized_files.append(filename)
                     logging.info("Track is started")
-            else:  # at previous window track was the same
-                pass
-            index_prev = best_match['index']
+                else:
+                    curr_track = -1
+                    track_len = 0
 
         except urllib.error.URLError as e:
             logging.error('Exception %s' % str(e))
+
 
 # This function tries to find outliers
 # with Z-score mathod:
@@ -119,15 +143,15 @@ def client_thread(queue, next_queue):
 def find_outlier(points):
     if len(points.shape) == 1:
         points = points[:, None]
-    if np.max(points) - np.min(points) < 50:
+    if np.max(points) - np.min(points) < 3:
         return -1
     max_outlier = -1
     max_outlier_ind = -1
     q25 = np.quantile(points, 0.25)
     q75 = np.quantile(points, 0.75)
     dif = q75-q25
-    score_min = q25-1.5*dif
-    score_max = q75+1.5*dif
+    score_min = q25-OUTLIER_THRESHOLD*dif
+    score_max = q75+OUTLIER_THRESHOLD*dif
     for i, score in enumerate(points):
         if score > score_max and score > max_outlier:
             max_outlier = score
