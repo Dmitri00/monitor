@@ -9,7 +9,8 @@ from hash_client import hash_thread, client_thread
 from radiorec2 import station_thread, ffmpeg_thread, stations_debug
 import signal
 from data_requests import db_stationurl_get_by_name
-from config import log_file,lock_file, is_daemon
+import config
+from argparser import parser
 import logging
 import atexit
 
@@ -83,18 +84,24 @@ def daemonize(station_id):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Please specify station name and url: radirec2.py name");
-        sys.exit(0);
-    station_name = sys.argv[1]
-    logging.basicConfig(filename=log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.DEBUG)
+    args = parser.parse_args(sys.argv[1:])
+    config.is_daemon = args.d == True
+    config.REMOVE_MP3 = args.st != True
+    config.RECORD_PERIOD = args.period_len
+    config.minimal_track_len = args.track_len
+    config.OUTLIER_THRESHOLD = args.th
+    station_name = args.station
+    
+    loglevel_dict = {'debug':logging.DEBUG,'info':logging.INFO,'error':logging.ERROR}
+    config.log_level = loglevel_dict[args.loglevel]
+    logging.basicConfig(filename=config.log_file,format='%(asctime)s %(threadName)s : %(levelno)s  %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=config.log_level)
     station = db_stationurl_get_by_name(station_name)
     if station == None:
         print('Station with name %s doesn\'t exist' % staion_name)
     station_url = station[0][1]
     station_id = station[0][0]
     logging.info('Попытка подключения к %s, %s ' % (station_url, station_id))
-    if is_daemon:
+    if config.is_daemon:
         daemonize(str(station_id))
     
     # ask unix core to call wait of child zombies (ffmpeg) autoatically
