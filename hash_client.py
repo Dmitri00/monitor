@@ -19,7 +19,8 @@ import re
 
 from data_requests import echoprint_recognize, db_accident_insert
 import numpy as np
-from config import echoprint_codegen_path, filename_rgexp, REMOVE_MP3, minimal_track_len, OUTLIER_THRESHOLD
+import config
+#from config import echoprint_codegen_path, filename_rgexp, REMOVE_MP3, minimal_track_len, OUTLIER_THRESHOLD
 
 #### Hasher thread ####
 
@@ -36,7 +37,7 @@ def hash_thread(queue, next_queue):
     while True:
         logging.debug('hasher: waiting for event')
         audio_filename = queue.get()
-        echoprint_process = subprocess.run([echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
+        echoprint_process = subprocess.run([config.echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
         try:
             track_hash = json.loads(echoprint_process.stdout)[0]['code']
             if next_queue != None:
@@ -61,7 +62,7 @@ def hash_thread(queue, next_queue):
 #----------------------------------------------------------------------#
 def client_thread(queue, next_queue):
     """thread client function"""
-    filename_re = re.compile(filename_rgexp)
+    filename_re = re.compile(config.filename_rgexp)
     recognized_files = deque()
     curr_track = None
     track_len = 0
@@ -105,11 +106,11 @@ def client_thread(queue, next_queue):
                 #additionally check, that previous track was being observed long enough to be confident
                 # then save info to db, clear track length counter
                 elif curr_track >= 0:
-                    if REMOVE_MP3:
+                    if config.REMOVE_MP3:
                         for track in recognized_files:
                             os.unlink(track)
                     recognized_files.clear()
-                    if track_len >= minimal_track_len:
+                    if track_len >= config.minimal_track_len:
                         end_stamp = stamp
                         accident = [None, station, index_prev,
                                     start_stamp, end_stamp]
@@ -150,8 +151,8 @@ def find_outlier(points):
     q25 = np.quantile(points, 0.25)
     q75 = np.quantile(points, 0.75)
     dif = q75-q25
-    score_min = q25-OUTLIER_THRESHOLD*dif
-    score_max = q75+OUTLIER_THRESHOLD*dif
+    score_min = q25-config.OUTLIER_THRESHOLD*dif
+    score_max = q75+config.OUTLIER_THRESHOLD*dif
     for i, score in enumerate(points):
         if score > score_max and score > max_outlier:
             max_outlier = score

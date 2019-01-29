@@ -1,6 +1,6 @@
 
 ############ DEFINED CONSTANTS ###########
-is_daemon = True
+is_daemon = False
 log_level = 'debug'
 OUTLIER_THRESHOLD = 3
 RECORD_PERIOD = 45 
