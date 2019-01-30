@@ -35,7 +35,7 @@ import config
 def hash_thread(queue, next_queue):
     """thread hash function"""
     while True:
-        logging.debug('hasher: waiting for event')
+        logging.debug('waiting for event')
         audio_filename = queue.get()
         echoprint_process = subprocess.run([config.echoprint_codegen_path,audio_filename], stdout=subprocess.PIPE)
         try:
@@ -69,10 +69,10 @@ def client_thread(queue, next_queue):
     time_start = ''
     time_end = ''
     while True:
-        logging.debug('client: waiting for event')
+        logging.debug('waiting for event')
             # Get values from queue
         (track_hash, filename) = queue.get()
-        logging.debug('client: event occured')
+        logging.debug('event occured')
         need_save_track = False
         try:
             ############ http request for recognition ############
@@ -89,6 +89,9 @@ def client_thread(queue, next_queue):
                 if curr_track != -1:
                     track_len += 1
                     recognized_files.append(filename)
+                else:
+                    os.unlink(filename)
+
             else:
                 # now we know, that atleast something new happened
                 # it could be an initial state of the algorithm, end of speech or of a track
@@ -105,29 +108,30 @@ def client_thread(queue, next_queue):
                 #else if it is not and initial state and previous track was not a speech
                 #additionally check, that previous track was being observed long enough to be confident
                 # then save info to db, clear track length counter
-                elif curr_track >= 0:
+                else:
                     if config.REMOVE_MP3:
                         for track in recognized_files:
                             os.unlink(track)
                     recognized_files.clear()
-                    if track_len >= config.minimal_track_len:
-                        end_stamp = stamp
-                        accident = [None, station, index_prev,
-                                    start_stamp, end_stamp]
-                        db_accident_insert(accident)
-                        logging.info("Track is finished")
-                    track_len = 0
+                    if curr_track >= 0:
+                        if track_len >= config.minimal_track_len:
+                            end_stamp = stamp
+                            accident = [None, station, curr_track,
+                                        start_stamp, end_stamp]
+                            db_accident_insert(accident)
+                            track_len = 1
+                            logging.info("Track is finished")
                 #finally, if current index is not -1 (not a speech or unrecognized)
                 # then mark timestamp as beginning of the new track and initialize track length
                 if best_match['index'] != -1:
                     start_stamp = stamp
                     curr_track = best_match['index']
-                    track_len = 1
                     recognized_files.append(filename)
                     logging.info("Track is started")
                 else:
                     curr_track = -1
                     track_len = 0
+                    os.unlink(filename)
 
         except urllib.error.URLError as e:
             logging.error('Exception %s' % str(e))
@@ -164,7 +168,7 @@ def get_bestMatch(track_hash):
     response = echoprint_recognize(track_hash)
     response = json.loads(response)['results']
     ############ end http request for recognition ########
-    logging.debug('Client:%s ' % response)
+    logging.debug(response)
 
     #### Find recognized track as score outlier #########
     best_match = None
