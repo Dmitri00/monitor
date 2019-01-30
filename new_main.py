@@ -112,13 +112,13 @@ if __name__ == '__main__':
 
     client_queue = Queue()
 
-    t = threading.Thread(target=station_thread, args=(station_name,station_url,hash_queue))
+    t = threading.Thread(name='Record-%s' % station_name, target=station_thread, args=(station_name,station_url,hash_queue))
     t.start()
     
 
-    t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, client_queue))
+    t = threading.Thread(name='Hasher-%s' % station_name, target=hash_thread, args=(hash_queue, client_queue))
     #t = threading.Thread(name='Hasher',target=hash_thread, args=(hash_queue, None))
     t.start()
 
-    t = threading.Thread(name='Client',target=client_thread, args=(client_queue, None))
+    t = threading.Thread(name='Client-%s' % station_name,target=client_thread, args=(client_queue, None))
     t.start()
